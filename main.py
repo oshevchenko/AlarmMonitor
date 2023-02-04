@@ -35,6 +35,8 @@ class AlarmMonitor(StateMachine):
 
     def before_ev_tick(self, event: str, source: State, target: State, message: str = ""):
         message = ". " + message if message else ""
+        if source.id == "alarm" and target.id == "running":
+            print("Send Alarm Clear message")
         return f"Running {event} from {source.id} to {target.id}{message}"
 
     def on_enter_running(self):
@@ -42,7 +44,7 @@ class AlarmMonitor(StateMachine):
 
     def on_enter_alarm(self):
         self.timer = self.ack_timeout
-        # Send Alarm message
+        print("Send Alarm message")
 
     def ack(self):
         return self.ack
@@ -94,7 +96,7 @@ if __name__ == '__main__':
     print(traffic_light.cycle())
     traffic_light.current_state
 
-    uart_alarm_monitor = AlarmMonitor("uart", False, 5)
+    uart_alarm_monitor = AlarmMonitor("uart", True, 5)
     print(uart_alarm_monitor.ev_start())
 
     for i in range(15):
