@@ -83,6 +83,6 @@ if __name__ == '__main__':
         except TransitionNotAllowed:
             pass
 
-    graph = DotGraphMachine(AlarmMonitor)
-    dot = graph()
-    dot.write_png("AlarmMonMachine_initial.png")
+    # graph = DotGraphMachine(AlarmMonitor)
+    # dot = graph()
+    # dot.write_png("AlarmMonMachine_initial.png")
