@@ -20,8 +20,8 @@ class LogObserver(object):
 
 class AlarmMonitor(StateMachine):
     """Monitor Alarms state machine"""
-    ALARM_TIMEOUT = 5
-    timer = ALARM_TIMEOUT
+
+    alarm_timer = 0
     idle = State("Idle", initial=True)
     running = State("Running")
     alarm = State("Alarm")
@@ -30,11 +30,14 @@ class AlarmMonitor(StateMachine):
     ev_start = idle.to(running)
     ev_reset = running.to.itself()
     ev_tick = running.to(alarm, cond=["timer_expired", "alarm_on_timeout"]) | \
-              alarm.to(running, cond=["timer_expired", "auto_ack"])
+              alarm.to(running, cond=["alarm_timer_expired", "auto_ack"])
     ev_alarm = running.to(alarm)
+    ev_clear = alarm.to(running)
 
-    def __init__(self, name, alarm_on_timeout=True, auto_ack=False, auto_ack_delay=0):
+    def __init__(self, name, alarm_on_timeout=True, alarm_timeout=5, auto_ack=False, auto_ack_delay=0):
         self.name = name
+        self.alarm_timeout = alarm_timeout
+        self.timer = alarm_timeout
         self.auto_ack = auto_ack
         self.alarm_on_timeout = alarm_on_timeout
         self.auto_ack_delay = auto_ack_delay
@@ -48,10 +51,10 @@ class AlarmMonitor(StateMachine):
         return f"Running {event} from {source.id} to {target.id}{message}"
 
     def on_enter_running(self):
-        self.timer = self.ALARM_TIMEOUT
+        self.timer = self.alarm_timeout
 
     def on_enter_alarm(self):
-        self.timer = self.auto_ack_delay
+        self.alarm_timer = self.auto_ack_delay
         print("TODO: Send Alarm message")
 
     def auto_ack(self):
@@ -65,6 +68,14 @@ class AlarmMonitor(StateMachine):
         if self.timer != 0:
             self.timer -= 1
         if self.timer == 0:
+            ret = True
+        return ret
+
+    def alarm_timer_expired(self):
+        ret = False
+        if self.alarm_timer != 0:
+            self.alarm_timer -= 1
+        if self.alarm_timer == 0:
             ret = True
         return ret
 
@@ -122,4 +133,4 @@ if __name__ == '__main__':
     graph = DotGraphMachine(AlarmMonitor)
     dot = graph()
     dot.write_png("AlarmMonMachine_initial.png")
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
+    # See PyCharm help at https://www.jetbrains.com/help/pycharm/
