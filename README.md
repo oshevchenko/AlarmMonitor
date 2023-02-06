@@ -2,12 +2,12 @@
 
 ```
 class AlarmMonitor(StateMachine):
-	ALARM_TIMEOUT = 5
 ...
-	def __init__(self, name, alarm_on_timeout=True, auto_ack=False, auto_ack_delay=0):
+  def __init__(self, name, alarm_on_timeout=True, alarm_timeout=5, auto_ack=False, auto_ack_delay=0):
 ```
 ## Parameters
-1. `alarm_on_timeout` - if `True` go from **running** to **alarm** state after `ALARM_TIMEOUT` seconds.
+1. `alarm_on_timeout` - if `True` go from **running** to **alarm** state after `alarm_timeout` seconds.
+If `False` only switch to **alarm** on `ev_alarm` event.
 2. `auto_ack` - Go from **alarm** to **running** state after `auto_ack_delay` seconds.
 
 
