@@ -1,0 +1,3 @@
+pydot==1.4.2
+pyparsing==3.0.9
+python-statemachine==1.0.3
