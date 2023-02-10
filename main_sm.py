@@ -82,8 +82,9 @@ class MainStateMachine(StateMachine):
 
     def __init__(self, name):
         super().__init__()
+        self.timer = None
 
-    def on_enter_idle(self):
+    def on_enter_st_idle(self):
         self.timer = self.TRANS_TIMEOUT
         print("TODO: Start timer")
         pass
@@ -109,6 +110,11 @@ class MainStateMachine(StateMachine):
     def on_enter_st_manual_trans(self):
         """Set manual state configuration."""
         print("TODO: Set manual state configuration.")
+        pass
+
+    def on_enter_st_manual_ext_osc_trans(self):
+        """Set manual state configuration."""
+        print("TODO: Set manual ext. osc. state configuration.")
         pass
 
     def ext_osc_in_sync(self):
