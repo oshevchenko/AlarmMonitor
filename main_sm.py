@@ -1,6 +1,132 @@
 from statemachine import StateMachine, State
 from statemachine.exceptions import TransitionNotAllowed
 from statemachine.contrib.diagram import DotGraphMachine
+from enum import Enum
+from copy import deepcopy
+from typing import Protocol, List, Dict, Any
+import logging
+
+class ServiceStatus(Enum):
+    free_running = 7
+    running = 6
+    stopped = 5
+    ptp_source = 4
+    no_ptp_source = 3
+    local = 2
+    undefined = 1
+
+class StateName(Enum):
+    gnss_master = 1
+    gnss_alarm = 2
+    ptp = 3
+    ext_osc_run = 4
+    ext_osc_alarm = 5
+    ntp = 6
+    initial = 7
+    transient = 8
+    alarm = 9
+    manual = 10
+    undefined = 11
+
+class EventName(Enum):
+    tick = 1
+    gnss_found = 2
+    ptp_found = 3
+    ntp_found = 4
+    ext_osc_found = 5
+    gnss_lost = 6
+    ptp_lost = 7
+    ntp_lost = 8
+    ext_osc_lost = 9
+    ptp_slave = 10
+    ptp_non_slave = 11
+
+class StatePriority(Enum):
+    prio_1 = 0
+    prio_2 = 1
+    prio_3 = 2
+    prio_4 = 3
+    prio_undefined = 4
+
+class EventLostPriority(Enum):
+    ev_prio_1_lost = 0
+    ev_prio_2_lost = 1
+    ev_prio_3_lost = 2
+    ev_prio_4_lost = 3
+
+class EventFoundPriority(Enum):
+    ev_prio_1_found = 0
+    ev_prio_2_found = 1
+    ev_prio_3_found = 2
+    ev_prio_4_found = 3
+
+
+
+g_manual_state = {
+        'name': StateName.manual,
+        'ts2phc_service': ServiceStatus.stopped,
+        'ptp4l_service': ServiceStatus.free_running,
+        'phc2sys_service': ServiceStatus.running,
+        'ptp_chronyd_service': ServiceStatus.local,
+}
+g_gnss_master_state = {
+        'name': StateName.gnss_master,
+        'ts2phc_service': ServiceStatus.running,
+        'ptp4l_service': ServiceStatus.free_running,
+        'phc2sys_service': ServiceStatus.stopped,
+        'ptp_chronyd_service': ServiceStatus.ptp_source,
+}
+g_gnss_alarm_state = {
+        'name': StateName.gnss_alarm,
+        'ts2phc_service': ServiceStatus.stopped,
+        'ptp4l_service': ServiceStatus.free_running,
+        'phc2sys_service': ServiceStatus.stopped,
+        'ptp_chronyd_service': ServiceStatus.no_ptp_source,
+}
+g_ptp_state = {
+        'name': StateName.ptp,
+        'ts2phc_service': ServiceStatus.stopped,
+        'ptp4l_service': ServiceStatus.running,
+        'phc2sys_service': ServiceStatus.stopped,
+        'ptp_chronyd_service': ServiceStatus.ptp_source,
+}
+g_ext_osc_run_state = {
+        'name': StateName.ext_osc_run,
+        'ts2phc_service': ServiceStatus.stopped,
+        'ptp4l_service': ServiceStatus.free_running,
+        'phc2sys_service': ServiceStatus.stopped,
+        'ptp_chronyd_service': ServiceStatus.ptp_source,
+}
+g_ext_osc_alarm_state = {
+        'name': StateName.ext_osc_alarm,
+        'ts2phc_service': ServiceStatus.stopped,
+        'ptp4l_service': ServiceStatus.free_running,
+        'phc2sys_service': ServiceStatus.stopped,
+        'ptp_chronyd_service': ServiceStatus.no_ptp_source,
+}
+g_ntp_state = {
+        'name': StateName.ntp,
+        'ts2phc_service': ServiceStatus.stopped,
+        'ptp4l_service': ServiceStatus.free_running,
+        'phc2sys_service': ServiceStatus.running,
+        'ptp_chronyd_service': ServiceStatus.no_ptp_source,
+}
+g_idle_state = {
+        'name': StateName.initial,
+        'ts2phc_service': ServiceStatus.undefined,
+        'ptp4l_service': ServiceStatus.undefined,
+        'phc2sys_service': ServiceStatus.undefined,
+        'ptp_chronyd_service': ServiceStatus.undefined,
+}
+g_alarm_state = {
+        'name': StateName.alarm,
+        'ts2phc_service': ServiceStatus.undefined,
+        'ptp4l_service': ServiceStatus.undefined,
+        'phc2sys_service': ServiceStatus.undefined,
+        'ptp_chronyd_service': ServiceStatus.undefined,
+}
+
+
 
 class LogObserver(object):
     def __init__(self, name):
@@ -135,6 +261,196 @@ class MainStateMachine(StateMachine):
         if self.timer == 0:
             ret = True
         return ret
+
+
+class PtpManager(Protocol):
+    def _start_ts2phc(self) -> str:
+        ...
+
+    def _stop_ts2phc(self) -> str:
+        ...
+
+    def _restart_ptp4l_free_running(self, free_running: bool = False) -> str:
+        ...
+
+    def _start_phc2sys(self) -> str:
+        ...
+
+    def _stop_phc2sys(self) -> str:
+        ...
+
+    def _add_ptp_chrony_sources(self) -> str:
+        ...
+
+    def _remove_ptp_chrony_sources(self) -> str:
+        ...
+
+    def _stop_chronyd(self) -> str:
+        ...
+
+    def _set_chrony_local(self) -> str:
+        ...
+
+    def ptp_manager_set_config(self, config: Dict[str, Any]) -> None:
+        ...
+
+
+class AlarmManager(Protocol):
+    def trigger(self, alarm_id: str) -> None:
+        ...
+
+    def start(self, alarm_id: str) -> None:
+        ...
+
+    def stop(self, alarm_id: str) -> None:
+        ...
+
+    def reset(self, alarm_id: str) -> None:
+        ...
+
+
+
+class MainStateMachineData(object):
+
+    _overall_status_dict_def =  {
+        'current_reference': 'None',
+        'sync_status': 'Starting',
+        'ref_status': {
+            "GNSS": 'undefined',
+            "PTP":  'undefined',
+            "NTP":  'undefined',
+            "Ext. Osc.": 'ok',
+        },
+        'event_status': {
+            "GNSS": {
+                "lost": 3600,
+                "ok": 3600,
+            },
+            "PTP":  {
+                "lost": 3600,
+                "ok": 3600,
+            },
+            "NTP":  {
+                "lost": 3600,
+                "ok": 3600,
+            },
+            "Ext. Osc.": {
+                "lost": 3600,
+                "ok": 3600,
+            }
+        },
+        'services': {
+            'ts2phc': 'undefined',
+            'chronyd': 'undefined',
+            'ptp4l': 'undefined',
+            'phc2sys_local': 'undefined',
+        },
+        'priorities': [
+        ],
+    }
+    _def_priorities = ['GNSS', 'PTP', 'NTP', 'Ext. Osc.']
+    _async_priorities = ['GNSS', 'PTP', 'NTP', 'Ext. Osc.']
+    _overall_status_dict = deepcopy(_overall_status_dict_def)
+
+    def __init__(self, ptp_manager: PtpManager, alarm_manager: AlarmManager):
+        self._current_state = g_idle_state
+        self._ptp_manager = ptp_manager
+        self._alarm_manager = alarm_manager
+
+    def set_priorities(self, prio):
+        self._overall_status_dict['priorities'] = prio
+
+    def get_ev_prio_x_lost(self, event):
+        ev_prio_x_lost = None
+        source_lost = {
+                EventName.gnss_lost:    "GNSS",
+                EventName.ptp_lost:     "PTP",
+                EventName.ntp_lost:     "NTP",
+                EventName.ext_osc_lost: "Ext. Osc."
+            }.get(event, None)
+
+        if source_lost and source_lost in self._overall_status_dict['priorities']:
+            self._overall_status_dict['event_status'][source_lost]['lost'] = 0
+            self._overall_status_dict['ref_status'][source_lost] = 'lost'
+            ev_prio_x_lost = EventLostPriority(self._overall_status_dict['priorities'].index(source_lost))
+        return ev_prio_x_lost
+
+    def get_ev_prio_x_found(self, event):
+        ev_prio_x_found = None
+        source_found = {
+                EventName.gnss_found:    "GNSS",
+                EventName.ptp_found:     "PTP",
+                EventName.ntp_found:     "NTP",
+                EventName.ext_osc_found: "Ext. Osc."
+            }.get(event, None)
+
+        if source_found and source_found in self._overall_status_dict['priorities']:
+            self._overall_status_dict['event_status'][source_found]['ok'] = 0
+            self._overall_status_dict['ref_status'][source_found] = 'ok'
+            ev_prio_x_found = EventFoundPriority(self._overall_status_dict['priorities'].index(source_found))
+        return ev_prio_x_found
+
+
+    def set_state_by_priority(self, prio: StatePriority):
+        """To be called from Main State Machine on enter prio_x_trans."""
+        sync_ref = self._overall_status_dict['priorities'][prio.value]
+        next_state = {
+                "GNSS":      g_gnss_master_state,
+                "PTP":       g_ptp_state,
+                "NTP":       g_ntp_state,
+            }.get(sync_ref)
+
+        if next_state['ts2phc_service'] != self._current_state['ts2phc_service']:
+            ret = {
+                'running': self._ptp_manager._start_ts2phc,
+                'stopped': self._ptp_manager._stop_ts2phc,
+            }.get(next_state['ts2phc_service'].name)()
+            self._overall_status_dict['services']['ts2phc'] = ret
+
+        if next_state['ptp4l_service'] != self._current_state['ptp4l_service']:
+            ret = self._ptp_manager._restart_ptp4l_free_running(\
+            {
+                'running': False,
+                'free_running': True,
+            }.get(next_state['ptp4l_service'].name))
+            self._overall_status_dict['services']['ptp4l'] = ret
+
+        if next_state['phc2sys_service'] != self._current_state['phc2sys_service']:
+            ret = {
+                'running': self._ptp_manager._start_phc2sys,
+                'stopped': self._ptp_manager._stop_phc2sys,
+            }.get(next_state['phc2sys_service'].name)()
+            self._overall_status_dict['services']['phc2sys_local'] = ret
+
+        if next_state['ptp_chronyd_service'] != self._current_state['ptp_chronyd_service']:
+            ret = {
+                'ptp_source': self._ptp_manager._add_ptp_chrony_sources,
+                'no_ptp_source': self._ptp_manager._remove_ptp_chrony_sources,
+                'stopped': self._ptp_manager._stop_chronyd,
+                'local': self._ptp_manager._set_chrony_local
+            }.get(next_state['ptp_chronyd_service'].name)()
+            self._overall_status_dict['services']['chronyd'] = ret
+
+        self._current_state = next_state
+
+
+    def reset_services_states(self, config: Dict[str, Any]):
+        priorities = config.get('priority_list', self._def_priorities)
+        logging.info("Setting priorities: {}".format(priorities))
+        if (len(priorities) == 0):
+            new_priorities = self._def_priorities
+        else:
+            # self._overall_status_dict['priorities'] = priorities
+            new_priorities = priorities
+        if len(priorities) > 1:
+            # Start if we have something except 'Ext. Osc.'
+            self._alarm_manager.start('ptpmanager_alarm')
+        else:
+            # Stop in we only have 'Ext. Osc.' enabled.
+            self._alarm_manager.stop('ptpmanager_alarm')
+        self._overall_status_dict['priorities'] = new_priorities
+        self._ptp_manager.ptp_manager_set_config(config)
+        self._current_state = g_idle_state
 
 
 # Press the green button in the gutter to run the script.

@@ -1,11 +1,69 @@
 from unittest import TestCase
-from main_sm import MainStateMachine
+from main_sm import MainStateMachine, MainStateMachineData, EventName, EventLostPriority, StateName, StatePriority
 import mock
 from statemachine.exceptions import TransitionNotAllowed
+from typing import Dict, Any
+import json
 
 # Launching unittests with arguments
 # python -m unittest tests.test_main_sm.TestMainStateMachine
 # in C:\Users\shevc\PycharmProjects\AlarmMonitor
+
+g_call_sequence = []
+
+class PtpManager(object):
+    def _start_ts2phc(self) -> str:
+        g_call_sequence.append("_start_ts2phc")
+        return 'ok'
+
+    def _stop_ts2phc(self) -> str:
+        g_call_sequence.append("_stop_ts2phc")
+        return 'ok'
+
+    def _restart_ptp4l_free_running(self, free_running: bool = False) -> str:
+        g_call_sequence.append("_restart_ptp4l_free_running "+str(free_running))
+        return 'ok'
+
+    def _start_phc2sys(self) -> str:
+        g_call_sequence.append("_start_phc2sys")
+        return 'ok'
+
+    def _stop_phc2sys(self) -> str:
+        g_call_sequence.append("_stop_phc2sys")
+        return 'ok'
+
+    def _add_ptp_chrony_sources(self) -> str:
+        g_call_sequence.append("_add_ptp_chrony_sources")
+        return 'ok'
+
+    def _remove_ptp_chrony_sources(self) -> str:
+        g_call_sequence.append("_remove_ptp_chrony_sources")
+        return 'ok'
+
+    def _stop_chronyd(self) -> str:
+        g_call_sequence.append("_stop_chronyd")
+        return 'ok'
+
+    def _set_chrony_local(self) -> str:
+        g_call_sequence.append("_set_chrony_local")
+        return 'ok'
+
+    def ptp_manager_set_config(self, config: Dict[str, Any]) -> None:
+        g_call_sequence.append("ptp_manager_set_config "+json.dumps(config))
+
+
+class AlarmManager(object):
+    def trigger(self, alarm_id: str) -> None:
+        g_call_sequence.append("alarm trigger "+alarm_id)
+
+    def start(self, alarm_id: str) -> None:
+        g_call_sequence.append("alarm start "+alarm_id)
+
+    def stop(self, alarm_id: str) -> None:
+        g_call_sequence.append("alarm stop "+alarm_id)
+
+    def reset(self, alarm_id: str) -> None:
+        g_call_sequence.append("alarm reset "+alarm_id)
 
 
 class TestMainStateMachine(TestCase):
@@ -84,3 +142,46 @@ class TestMainStateMachine(TestCase):
         sm_main.ev_timeout()
         self.assertTrue(sm_main.st_manual_ext_osc.is_active)
 
+
+    def test_main_sm_data_get_ev_prio_x_lost(self):
+        ptp_manager = PtpManager()
+        alarm_manager = AlarmManager()
+        sm_main = MainStateMachineData(ptp_manager, alarm_manager)
+        sm_main.set_priorities(['PTP', 'NTP', 'GNSS', 'Ext. Osc.'])
+        ev_prio_x_lost = sm_main.get_ev_prio_x_lost(EventName.gnss_lost)
+        self.assertTrue(ev_prio_x_lost.name == 'ev_prio_3_lost')
+        ev_prio_x_found = sm_main.get_ev_prio_x_found(EventName.gnss_found)
+        self.assertTrue(ev_prio_x_found.name == 'ev_prio_3_found')
+        sm_main.set_priorities(['PTP', 'NTP', 'Ext. Osc.'])
+        ev_prio_x_lost = sm_main.get_ev_prio_x_lost(EventName.gnss_lost)
+        self.assertTrue(ev_prio_x_lost == None)
+        ev_prio_x_lost = sm_main.get_ev_prio_x_lost(EventName.ntp_lost)
+        self.assertTrue(ev_prio_x_lost.name == 'ev_prio_2_lost')
+        ev_prio_x_found = sm_main.get_ev_prio_x_found(EventName.ntp_found)
+        self.assertTrue(ev_prio_x_found.name == 'ev_prio_2_found')
+
+
+    def test_set_state_by_priority(self):
+        g_call_sequence.clear()
+        ptp_manager = PtpManager()
+        alarm_manager = AlarmManager()
+        sm_main = MainStateMachineData(ptp_manager, alarm_manager)
+        sm_main.set_priorities(['PTP', 'NTP', 'GNSS', 'Ext. Osc.'])
+        # sm_main.set_state_by_priority(StatePriority.prio_1)
+        # print(g_call_sequence)
+        # g_call_sequence.clear()
+        sm_main.set_state_by_priority(StatePriority.prio_3)
+        self.assertTrue(json.dumps(g_call_sequence).encode() == b'["_start_ts2phc", "_restart_ptp4l_free_running True", "_stop_phc2sys", "_add_ptp_chrony_sources"]')
+        pass
+
+
+
+    def test_reset_services_states(self):
+        g_call_sequence.clear()
+        ptp_manager = PtpManager()
+        alarm_manager = AlarmManager()
+        config = {'priority_list': ['PTP', 'NTP', 'GNSS', 'Ext. Osc.']}
+        sm_main = MainStateMachineData(ptp_manager, alarm_manager)
+        sm_main.reset_services_states(config)
+        self.assertTrue(json.dumps(g_call_sequence).encode() == \
+         b'["alarm start ptpmanager_alarm", "ptp_manager_set_config {\\"priority_list\\": [\\"PTP\\", \\"NTP\\", \\"GNSS\\", \\"Ext. Osc.\\"]}"]')
