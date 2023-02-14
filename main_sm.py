@@ -391,15 +391,7 @@ class MainStateMachineData(object):
         return ev_prio_x_found
 
 
-    def set_state_by_priority(self, prio: StatePriority):
-        """To be called from Main State Machine on enter prio_x_trans."""
-        sync_ref = self._overall_status_dict['priorities'][prio.value]
-        next_state = {
-                "GNSS":      g_gnss_master_state,
-                "PTP":       g_ptp_state,
-                "NTP":       g_ntp_state,
-            }.get(sync_ref)
-
+    def _set_next_state(self, next_state: Dict[str, Any]):
         if next_state['ts2phc_service'] != self._current_state['ts2phc_service']:
             ret = {
                 'running': self._ptp_manager._start_ts2phc,
@@ -434,6 +426,17 @@ class MainStateMachineData(object):
         self._current_state = next_state
 
 
+    def set_state_by_priority(self, prio: StatePriority):
+        """To be called from Main State Machine on enter prio_x_trans."""
+        sync_ref = self._overall_status_dict['priorities'][prio.value]
+        next_state = {
+                "GNSS":      g_gnss_master_state,
+                "PTP":       g_ptp_state,
+                "NTP":       g_ntp_state,
+            }.get(sync_ref)
+        self._set_next_state(next_state)
+
+
     def reset_services_states(self, config: Dict[str, Any]):
         priorities = config.get('priority_list', self._def_priorities)
         logging.info("Setting priorities: {}".format(priorities))
@@ -446,7 +449,7 @@ class MainStateMachineData(object):
             # Start if we have something except 'Ext. Osc.'
             self._alarm_manager.start('ptpmanager_alarm')
         else:
-            # Stop in we only have 'Ext. Osc.' enabled.
+            # Stop if we only have 'Ext. Osc.' enabled.
             self._alarm_manager.stop('ptpmanager_alarm')
         self._overall_status_dict['priorities'] = new_priorities
         self._ptp_manager.ptp_manager_set_config(config)
