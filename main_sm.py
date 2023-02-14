@@ -5,6 +5,7 @@ from enum import Enum
 from copy import deepcopy
 from typing import Protocol, List, Dict, Any
 import logging
+import time
 
 class ServiceStatus(Enum):
     free_running = 7
@@ -69,6 +70,13 @@ g_manual_state = {
         'phc2sys_service': ServiceStatus.running,
         'ptp_chronyd_service': ServiceStatus.local,
 }
+g_manual_ext_osc_state = {
+        'name': StateName.ext_osc_run,
+        'ts2phc_service': ServiceStatus.stopped,
+        'ptp4l_service': ServiceStatus.free_running,
+        'phc2sys_service': ServiceStatus.stopped,
+        'ptp_chronyd_service': ServiceStatus.ptp_source,
+}
 g_gnss_master_state = {
         'name': StateName.gnss_master,
         'ts2phc_service': ServiceStatus.running,
@@ -87,13 +95,6 @@ g_ptp_state = {
         'name': StateName.ptp,
         'ts2phc_service': ServiceStatus.stopped,
         'ptp4l_service': ServiceStatus.running,
-        'phc2sys_service': ServiceStatus.stopped,
-        'ptp_chronyd_service': ServiceStatus.ptp_source,
-}
-g_ext_osc_run_state = {
-        'name': StateName.ext_osc_run,
-        'ts2phc_service': ServiceStatus.stopped,
-        'ptp4l_service': ServiceStatus.free_running,
         'phc2sys_service': ServiceStatus.stopped,
         'ptp_chronyd_service': ServiceStatus.ptp_source,
 }
@@ -172,6 +173,7 @@ class MainStateMachine(StateMachine):
     st_prio_1_trans = State("prio_1_trans")
 
     ev_error = st_alarm.from_(st_prio_1, st_prio_2, st_prio_3, st_manual, st_manual_ext_osc)
+    ev_set_time = st_manual.to(st_manual) | st_manual_ext_osc.to(st_manual_trans)
 
     ev_timeout = st_prio_1_trans.to(st_prio_1) | \
               st_prio_2_trans.to(st_prio_2) | \
@@ -356,6 +358,8 @@ class MainStateMachineData(object):
         self._current_state = g_idle_state
         self._ptp_manager = ptp_manager
         self._alarm_manager = alarm_manager
+        self._manual_time = None
+        self._manual_trigger_time = None
 
     def set_priorities(self, prio):
         self._overall_status_dict['priorities'] = prio
@@ -389,7 +393,6 @@ class MainStateMachineData(object):
             self._overall_status_dict['ref_status'][source_found] = 'ok'
             ev_prio_x_found = EventFoundPriority(self._overall_status_dict['priorities'].index(source_found))
         return ev_prio_x_found
-
 
     def _set_next_state(self, next_state: Dict[str, Any]):
         if next_state['ts2phc_service'] != self._current_state['ts2phc_service']:
@@ -425,7 +428,6 @@ class MainStateMachineData(object):
 
         self._current_state = next_state
 
-
     def set_state_by_priority(self, prio: StatePriority):
         """To be called from Main State Machine on enter prio_x_trans."""
         sync_ref = self._overall_status_dict['priorities'][prio.value]
@@ -436,6 +438,11 @@ class MainStateMachineData(object):
             }.get(sync_ref)
         self._set_next_state(next_state)
 
+    def set_state_manual(self):
+        self._set_next_state(g_manual_state)
+
+    def set_state_manual_ext_osc(self):
+        self._set_next_state(g_manual_ext_osc_state)
 
     def reset_services_states(self, config: Dict[str, Any]):
         priorities = config.get('priority_list', self._def_priorities)
@@ -454,6 +461,15 @@ class MainStateMachineData(object):
         self._overall_status_dict['priorities'] = new_priorities
         self._ptp_manager.ptp_manager_set_config(config)
         self._current_state = g_idle_state
+
+    def add_manual_time(self, manual_time: int):
+        self._manual_time = manual_time
+        self._manual_trigger_time = time.time()
+
+    def set_manual_time(self):
+        if self._manual_time:
+            self._ptp_manager.set_manual_time(self._manual_time, self._manual_trigger_time)
+
 
 
 # Press the green button in the gutter to run the script.
