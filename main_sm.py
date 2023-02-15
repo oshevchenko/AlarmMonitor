@@ -190,7 +190,6 @@ class AlarmManager(Protocol):
         ...
 
 
-
 class MainStateMachineData(object):
 
     _overall_status_dict_def =  {
@@ -240,6 +239,23 @@ class MainStateMachineData(object):
         self._manual_time = None
         self._manual_trigger_time = None
         self._config = None
+
+    def mq_get_status(self):
+        sync_status = {
+            StateName.gnss_master:   ('GNSS Sync', 'GNSS'),
+            StateName.gnss_alarm:    ('GNSS Alarm', 'None'),
+            StateName.ptp:           ('PTP Sync', 'PTP'),
+            StateName.ntp:           ('NTP Sync', 'NTP'),
+            StateName.ext_osc_run:   ('Ext. Osc. Sync', 'Ext. Osc.'),
+            StateName.ext_osc_alarm: ('Ext. Osc. Timeout', 'Ext. Osc.'),
+            StateName.initial:       ('Initial', 'None'),
+            StateName.transient:     ('Transient...', 'None'),
+            StateName.alarm:         ('Out of Sync...', 'None'),
+            StateName.manual:        ('Manual', 'None')
+        }.get(self._current_state['name'], ('undefined', 'undefined'))
+        self._overall_status_dict['sync_status'] = sync_status[0]
+        self._overall_status_dict['current_reference'] = sync_status[1]
+        return self._overall_status_dict
 
     def set_priorities(self, prio):
         self._overall_status_dict['priorities'] = prio
@@ -473,8 +489,8 @@ class MainStateMachine(StateMachine):
 
     def ext_osc_in_sync(self):
         """Return True if external oscillator is synchronized beforehand."""
-        print("TODO: Return True if external oscillator was synchronized beforehand.")
-        pass
+        # print("TODO: Return True if external oscillator was synchronized beforehand.")
+        return False
 
     def on_ev_config_update(self, event: str, source: State, target: State, message: str = ""):
         message = ". " + message if message else ""
