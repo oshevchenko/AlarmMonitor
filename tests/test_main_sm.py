@@ -4,6 +4,7 @@ import mock
 from statemachine.exceptions import TransitionNotAllowed
 from typing import Dict, Any
 import json
+import time
 
 # Launching unittests with arguments
 # python -m unittest tests.test_main_sm.TestMainStateMachine
@@ -50,6 +51,9 @@ class PtpManager(object):
 
     def ptp_manager_set_config(self, config: Dict[str, Any]) -> None:
         g_call_sequence.append("ptp_manager_set_config "+json.dumps(config))
+
+    def set_manual_time(self, manual_time: int, manual_trigger_time: int) -> None:
+        g_call_sequence.append("ptp_manager_set_manual_time "+json.dumps((manual_time, manual_trigger_time)))
 
 
 class AlarmManager(object):
@@ -179,17 +183,17 @@ class TestMainStateMachine(TestCase):
         self.assertTrue(ev_prio_x_found.name == 'ev_prio_2_found')
 
 
-    def test_sm_set_state_by_priority(self):
+    def test_sm_set_next_state_by_priority(self):
         g_call_sequence.clear()
         config = {'priority_list': ['PTP', 'NTP', 'GNSS', 'Ext. Osc.']}
         self.sm_data.mq_set_config(config)
-        self.sm_data.sm_set_state_by_priority(StatePriority.prio_3)
+        self.sm_data.sm_set_next_state_by_priority(StatePriority.prio_3)
         self.assertTrue(json.dumps(g_call_sequence).encode() == b'["_start_ts2phc", "_restart_ptp4l_free_running True", "_stop_phc2sys", "_add_ptp_chrony_sources"]')
         pass
 
-
-
-    def test_sm_reset_services_states(self):
+    @mock.patch('time.time', mock.MagicMock(return_value=54321))
+    @mock.patch.object(MainStateMachine, 'ext_osc_in_sync', return_value=False)
+    def test_sm_reset_services_states(self, mock_ext_osc_in_sync):
         g_call_sequence.clear()
         ptp_manager = PtpManager()
         alarm_manager = AlarmManager()
@@ -199,7 +203,19 @@ class TestMainStateMachine(TestCase):
         sm_main.ev_config_update()
         self.assertTrue(json.dumps(g_call_sequence).encode() == \
          b'["alarm start ptpmanager_alarm", "ptp_manager_set_config {\\"priority_list\\": [\\"PTP\\", \\"NTP\\", \\"GNSS\\", \\"Ext. Osc.\\"]}"]')
-
+        # We are in the idle state
+        g_call_sequence.clear()
+        self.sm_data.mq_add_manual_time(12345)
+        sm_main.ev_timeout()
+        self.assertTrue(mock_ext_osc_in_sync.called)
+        self.assertTrue(sm_main.st_manual_trans.is_active)
+        self.assertTrue(json.dumps(g_call_sequence).encode() == \
+        b'["_stop_ts2phc", "_restart_ptp4l_free_running True", "_start_phc2sys", "_set_chrony_local"]')
+        g_call_sequence.clear()
+        sm_main.ev_timeout()
+        self.assertTrue(sm_main.st_manual.is_active)
+        self.assertTrue(json.dumps(g_call_sequence).encode() == \
+         b'["ptp_manager_set_manual_time [12345, 54321]"]')
 
     @mock.patch.object(MainStateMachineData, '_set_next_state')
     def test1_on_enter_st_prio_1_trans(self, mock_set_next_state):

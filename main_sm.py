@@ -173,6 +173,8 @@ class PtpManager(Protocol):
     def ptp_manager_set_config(self, config: Dict[str, Any]) -> None:
         ...
 
+    def set_manual_time(self, manual_time: int, manual_trigger_time: int) -> None:
+        ...
 
 class AlarmManager(Protocol):
     def trigger(self, alarm_id: str) -> None:
@@ -306,7 +308,7 @@ class MainStateMachineData(object):
 
         self._current_state = next_state
 
-    def sm_set_state_by_priority(self, prio: StatePriority):
+    def sm_set_next_state_by_priority(self, prio: StatePriority):
         """To be called from Main State Machine on enter prio_x_trans."""
         # print("prio {} dict {}".format(prio, self._overall_status_dict['priorities']))
         if len(self._overall_status_dict['priorities']) > prio.value:
@@ -318,10 +320,10 @@ class MainStateMachineData(object):
                 }.get(sync_ref)
             self._set_next_state(next_state)
 
-    def set_state_manual(self):
+    def sm_set_next_state_manual(self):
         self._set_next_state(g_manual_state)
 
-    def set_state_manual_ext_osc(self):
+    def sm_set_next_state_manual_ext_osc(self):
         self._set_next_state(g_manual_ext_osc_state)
 
     def mq_set_config(self, config: Dict[str, Any]):
@@ -348,13 +350,14 @@ class MainStateMachineData(object):
         self._ptp_manager.ptp_manager_set_config(self._config)
         self._current_state = g_idle_state
 
-    def add_manual_time(self, manual_time: int):
+    def mq_add_manual_time(self, manual_time: int):
         self._manual_time = manual_time
-        self._manual_trigger_time = time.time()
+        self._manual_trigger_time = int(time.time())
 
-    def set_manual_time(self):
+    def sm_set_manual_time(self):
         if self._manual_time:
             self._ptp_manager.set_manual_time(self._manual_time, self._manual_trigger_time)
+            self._manual_time = None
 
     def sm_start_timer_1(self, timeout: int = TRANS_TIMEOUT):
         self._timer_1 = timeout
@@ -439,35 +442,34 @@ class MainStateMachine(StateMachine):
 
     def on_enter_st_idle(self):
         self._sm_data.sm_start_timer_1(IDLE_TIMEOUT)
-        pass
 
     def on_enter_st_prio_1_trans(self):
         """Start timer, set prio1 state configuration."""
         self._sm_data.sm_start_timer_1(TRANS_TIMEOUT)
-        self._sm_data.sm_set_state_by_priority(StatePriority.prio_1)
-        pass
+        self._sm_data.sm_set_next_state_by_priority(StatePriority.prio_1)
 
     def on_enter_st_prio_2_trans(self):
         """Start timer, set prio2 state configuration."""
         self._sm_data.sm_start_timer_1(TRANS_TIMEOUT)
-        self._sm_data.sm_set_state_by_priority(StatePriority.prio_2)
-        pass
+        self._sm_data.sm_set_next_state_by_priority(StatePriority.prio_2)
 
     def on_enter_st_prio_3_trans(self):
         """Start timer, set prio3 state configuration."""
         self._sm_data.sm_start_timer_1(TRANS_TIMEOUT)
-        self._sm_data.sm_set_state_by_priority(StatePriority.prio_3)
-        pass
+        self._sm_data.sm_set_next_state_by_priority(StatePriority.prio_3)
 
     def on_enter_st_manual_trans(self):
         """Set manual state configuration."""
-        print("TODO: Set manual state configuration.")
-        pass
+        self._sm_data.sm_start_timer_1(TRANS_TIMEOUT)
+        self._sm_data.sm_set_next_state_manual()
+
+    def on_enter_st_manual(self):
+        self._sm_data.sm_set_manual_time()
 
     def on_enter_st_manual_ext_osc_trans(self):
         """Set manual state configuration."""
-        print("TODO: Set manual ext. osc. state configuration.")
-        pass
+        self._sm_data.sm_start_timer_1(TRANS_TIMEOUT)
+        self._sm_data.sm_set_next_state_manual_ext_osc()
 
     def ext_osc_in_sync(self):
         """Return True if external oscillator is synchronized beforehand."""
@@ -477,9 +479,6 @@ class MainStateMachine(StateMachine):
     def on_ev_config_update(self, event: str, source: State, target: State, message: str = ""):
         message = ". " + message if message else ""
         self._sm_data.sm_reset_services_states()
-
-        # if source.id is in self.stable_states and target.id == "st_idle":
-        print("TODO: Set all PTP4L services states to UNDEFINED. >>>")
 
 
 # Press the green button in the gutter to run the script.
