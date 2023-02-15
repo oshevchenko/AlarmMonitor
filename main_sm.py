@@ -7,6 +7,9 @@ from typing import Protocol, List, Dict, Any
 import logging
 import time
 
+TRANS_TIMEOUT=5
+IDLE_TIMEOUT = 10
+
 class ServiceStatus(Enum):
     free_running = 7
     running = 6
@@ -139,132 +142,6 @@ class LogObserver(object):
     def on_enter_state(self, target, event):
         print(f"{self.name} enter: {target.id} from {event}")
 
-
-
-
-class MainStateMachine(StateMachine):
-    """Monitor Alarms state machine"""
-    stable_states = ['st_init',\
-                     'st_alarm',\
-                     'st_prio_1',\
-                     'st_prio_2',\
-                     'st_prio_3',\
-                     'st_manual',\
-                     'st_manual_ext_osc']
-    st_init = State("init", initial=True)
-    st_alarm = State("alarm")
-    st_idle = State("idle")
-
-    st_prio_3_idle = State("prio_3_idle")
-    st_prio_2_idle = State("prio_2_idle")
-
-    st_manual_trans = State("manual_trans")
-    st_manual_ext_osc_trans = State("manual_ext_osc_trans")
-
-    st_manual = State("manual")
-    st_manual_ext_osc = State("manual_ext_osc")
-
-    st_prio_3 = State("prio_3")
-    st_prio_2 = State("prio_2")
-    st_prio_1 = State("prio_1")
-
-    st_prio_3_trans = State("prio_3_trans")
-    st_prio_2_trans = State("prio_2_trans")
-    st_prio_1_trans = State("prio_1_trans")
-
-    ev_error = st_alarm.from_(st_prio_1, st_prio_2, st_prio_3, st_manual, st_manual_ext_osc)
-    ev_set_time = st_manual.to(st_manual) | st_manual_ext_osc.to(st_manual_trans)
-
-    ev_timeout = st_prio_1_trans.to(st_prio_1) | \
-              st_prio_2_trans.to(st_prio_2) | \
-              st_prio_3_trans.to(st_prio_3) | \
-              st_prio_2_idle.to(st_prio_2_trans) | \
-              st_prio_3_idle.to(st_prio_3_trans) | \
-              st_idle.to(st_manual_trans, unless='ext_osc_in_sync') | \
-              st_idle.to(st_manual_ext_osc_trans, cond='ext_osc_in_sync') | \
-              st_manual_trans.to(st_manual) | \
-              st_manual_ext_osc_trans.to(st_manual_ext_osc)
-
-    ev_config_update = st_idle.from_(st_init, st_alarm,\
-                                     st_prio_1, st_prio_2, st_prio_3,\
-                                     st_manual, st_manual_ext_osc)
-    ev_prio_1_lost = st_prio_1.to(st_idle)
-    ev_prio_2_lost = st_prio_2.to(st_idle)
-    ev_prio_3_lost = st_prio_3.to(st_idle)
-
-    ev_prio_3_found = st_manual.to(st_prio_3_trans) |\
-                      st_manual_ext_osc.to(st_prio_3_trans) |\
-                      st_idle.to(st_prio_3_idle)
-
-    ev_prio_2_found = st_manual.to(st_prio_2_trans) |\
-                      st_manual_ext_osc.to(st_prio_2_trans) |\
-                      st_prio_3.to(st_prio_2_trans) |\
-                      st_idle.to(st_prio_2_idle) |\
-                      st_prio_3_idle.to(st_prio_2_idle)
-
-    ev_prio_1_found = st_prio_1_trans.from_(st_manual, st_manual_ext_osc,\
-                                            st_prio_2, st_prio_3,\
-                                            st_idle, st_prio_2_idle, st_prio_3_idle)
-
-    TRANS_TIMEOUT=5
-
-    def __init__(self, name):
-        super().__init__()
-        self.timer = None
-
-    def on_enter_st_idle(self):
-        self.timer = self.TRANS_TIMEOUT
-        print("TODO: Start timer")
-        pass
-
-    def on_enter_st_prio_1_trans(self):
-        """Start timer, set prio1 state configuration."""
-        self.timer = self.TRANS_TIMEOUT
-        print("TODO: Start timer, set prio1 state configuration.")
-        pass
-
-    def on_enter_st_prio_2_trans(self):
-        """Start timer, set prio2 state configuration."""
-        self.timer = self.TRANS_TIMEOUT
-        print("TODO: Start timer, set prio2 state configuration.")
-        pass
-
-    def on_enter_st_prio_3_trans(self):
-        """Start timer, set prio3 state configuration."""
-        self.timer = self.TRANS_TIMEOUT
-        print("TODO: Start timer, set prio3 state configuration.")
-        pass
-
-    def on_enter_st_manual_trans(self):
-        """Set manual state configuration."""
-        print("TODO: Set manual state configuration.")
-        pass
-
-    def on_enter_st_manual_ext_osc_trans(self):
-        """Set manual state configuration."""
-        print("TODO: Set manual ext. osc. state configuration.")
-        pass
-
-    def ext_osc_in_sync(self):
-        """Return True if external oscillator is synchronized beforehand."""
-        print("TODO: Return True if external oscillator was synchronized beforehand.")
-        pass
-
-    def on_ev_config_update(self, event: str, source: State, target: State, message: str = ""):
-        message = ". " + message if message else ""
-
-        # if source.id is in self.stable_states and target.id == "st_idle":
-        print("TODO: Set all PTP4L services states to UNDEFINED.")
-
-    def timer_expired(self):
-        ret = False
-        if self.timer != 0:
-            self.timer -= 1
-        if self.timer == 0:
-            ret = True
-        return ret
-
-
 class PtpManager(Protocol):
     def _start_ts2phc(self) -> str:
         ...
@@ -360,6 +237,7 @@ class MainStateMachineData(object):
         self._alarm_manager = alarm_manager
         self._manual_time = None
         self._manual_trigger_time = None
+        self._config = None
 
     def set_priorities(self, prio):
         self._overall_status_dict['priorities'] = prio
@@ -428,15 +306,17 @@ class MainStateMachineData(object):
 
         self._current_state = next_state
 
-    def set_state_by_priority(self, prio: StatePriority):
+    def sm_set_state_by_priority(self, prio: StatePriority):
         """To be called from Main State Machine on enter prio_x_trans."""
-        sync_ref = self._overall_status_dict['priorities'][prio.value]
-        next_state = {
-                "GNSS":      g_gnss_master_state,
-                "PTP":       g_ptp_state,
-                "NTP":       g_ntp_state,
-            }.get(sync_ref)
-        self._set_next_state(next_state)
+        # print("prio {} dict {}".format(prio, self._overall_status_dict['priorities']))
+        if len(self._overall_status_dict['priorities']) > prio.value:
+            sync_ref = self._overall_status_dict['priorities'][prio.value]
+            next_state = {
+                    "GNSS":      g_gnss_master_state,
+                    "PTP":       g_ptp_state,
+                    "NTP":       g_ntp_state,
+                }.get(sync_ref)
+            self._set_next_state(next_state)
 
     def set_state_manual(self):
         self._set_next_state(g_manual_state)
@@ -444,8 +324,14 @@ class MainStateMachineData(object):
     def set_state_manual_ext_osc(self):
         self._set_next_state(g_manual_ext_osc_state)
 
-    def reset_services_states(self, config: Dict[str, Any]):
-        priorities = config.get('priority_list', self._def_priorities)
+    def mq_set_config(self, config: Dict[str, Any]):
+        self._config = config
+
+    def sm_reset_services_states(self):
+        if self._config == None:
+            logging.error("Config is not set!")
+            return
+        priorities = self._config.get('priority_list', self._def_priorities)
         logging.info("Setting priorities: {}".format(priorities))
         if (len(priorities) == 0):
             new_priorities = self._def_priorities
@@ -459,7 +345,7 @@ class MainStateMachineData(object):
             # Stop if we only have 'Ext. Osc.' enabled.
             self._alarm_manager.stop('ptpmanager_alarm')
         self._overall_status_dict['priorities'] = new_priorities
-        self._ptp_manager.ptp_manager_set_config(config)
+        self._ptp_manager.ptp_manager_set_config(self._config)
         self._current_state = g_idle_state
 
     def add_manual_time(self, manual_time: int):
@@ -470,6 +356,130 @@ class MainStateMachineData(object):
         if self._manual_time:
             self._ptp_manager.set_manual_time(self._manual_time, self._manual_trigger_time)
 
+    def sm_start_timer_1(self, timeout: int = TRANS_TIMEOUT):
+        self._timer_1 = timeout
+
+    def mq_check_expired_timer_1(self):
+        ret = False
+        if self._timer_1 != 0:
+            self._timer_1 -= 1
+        if self._timer_1 == 0:
+            ret = True
+        return ret
+
+
+class MainStateMachine(StateMachine):
+    """Monitor Alarms state machine"""
+    stable_states = ['st_init',\
+                     'st_alarm',\
+                     'st_prio_1',\
+                     'st_prio_2',\
+                     'st_prio_3',\
+                     'st_manual',\
+                     'st_manual_ext_osc']
+    st_init = State("init", initial=True)
+    st_alarm = State("alarm")
+    st_idle = State("idle")
+
+    st_prio_3_idle = State("prio_3_idle")
+    st_prio_2_idle = State("prio_2_idle")
+
+    st_manual_trans = State("manual_trans")
+    st_manual_ext_osc_trans = State("manual_ext_osc_trans")
+
+    st_manual = State("manual")
+    st_manual_ext_osc = State("manual_ext_osc")
+
+    st_prio_3 = State("prio_3")
+    st_prio_2 = State("prio_2")
+    st_prio_1 = State("prio_1")
+
+    st_prio_3_trans = State("prio_3_trans")
+    st_prio_2_trans = State("prio_2_trans")
+    st_prio_1_trans = State("prio_1_trans")
+
+    ev_error = st_alarm.from_(st_prio_1, st_prio_2, st_prio_3, st_manual, st_manual_ext_osc)
+    ev_set_time = st_manual.to(st_manual) | st_manual_ext_osc.to(st_manual_trans)
+
+    ev_timeout = st_prio_1_trans.to(st_prio_1) | \
+              st_prio_2_trans.to(st_prio_2) | \
+              st_prio_3_trans.to(st_prio_3) | \
+              st_prio_2_idle.to(st_prio_2_trans) | \
+              st_prio_3_idle.to(st_prio_3_trans) | \
+              st_idle.to(st_manual_trans, unless='ext_osc_in_sync') | \
+              st_idle.to(st_manual_ext_osc_trans, cond='ext_osc_in_sync') | \
+              st_manual_trans.to(st_manual) | \
+              st_manual_ext_osc_trans.to(st_manual_ext_osc)
+
+    ev_config_update = st_idle.from_(st_init, st_alarm,\
+                                     st_prio_1, st_prio_2, st_prio_3,\
+                                     st_manual, st_manual_ext_osc)
+    ev_prio_1_lost = st_prio_1.to(st_idle)
+    ev_prio_2_lost = st_prio_2.to(st_idle)
+    ev_prio_3_lost = st_prio_3.to(st_idle)
+
+    ev_prio_3_found = st_manual.to(st_prio_3_trans) |\
+                      st_manual_ext_osc.to(st_prio_3_trans) |\
+                      st_idle.to(st_prio_3_idle)
+
+    ev_prio_2_found = st_manual.to(st_prio_2_trans) |\
+                      st_manual_ext_osc.to(st_prio_2_trans) |\
+                      st_prio_3.to(st_prio_2_trans) |\
+                      st_idle.to(st_prio_2_idle) |\
+                      st_prio_3_idle.to(st_prio_2_idle)
+
+    ev_prio_1_found = st_prio_1_trans.from_(st_manual, st_manual_ext_osc,\
+                                            st_prio_2, st_prio_3,\
+                                            st_idle, st_prio_2_idle, st_prio_3_idle)
+
+    def __init__(self, sm_data: MainStateMachineData) -> None:
+        super().__init__()
+        self.timer = None
+        self._sm_data = sm_data
+
+    def on_enter_st_idle(self):
+        self._sm_data.sm_start_timer_1(IDLE_TIMEOUT)
+        pass
+
+    def on_enter_st_prio_1_trans(self):
+        """Start timer, set prio1 state configuration."""
+        self._sm_data.sm_start_timer_1(TRANS_TIMEOUT)
+        self._sm_data.sm_set_state_by_priority(StatePriority.prio_1)
+        pass
+
+    def on_enter_st_prio_2_trans(self):
+        """Start timer, set prio2 state configuration."""
+        self._sm_data.sm_start_timer_1(TRANS_TIMEOUT)
+        self._sm_data.sm_set_state_by_priority(StatePriority.prio_2)
+        pass
+
+    def on_enter_st_prio_3_trans(self):
+        """Start timer, set prio3 state configuration."""
+        self._sm_data.sm_start_timer_1(TRANS_TIMEOUT)
+        self._sm_data.sm_set_state_by_priority(StatePriority.prio_3)
+        pass
+
+    def on_enter_st_manual_trans(self):
+        """Set manual state configuration."""
+        print("TODO: Set manual state configuration.")
+        pass
+
+    def on_enter_st_manual_ext_osc_trans(self):
+        """Set manual state configuration."""
+        print("TODO: Set manual ext. osc. state configuration.")
+        pass
+
+    def ext_osc_in_sync(self):
+        """Return True if external oscillator is synchronized beforehand."""
+        print("TODO: Return True if external oscillator was synchronized beforehand.")
+        pass
+
+    def on_ev_config_update(self, event: str, source: State, target: State, message: str = ""):
+        message = ". " + message if message else ""
+        self._sm_data.sm_reset_services_states()
+
+        # if source.id is in self.stable_states and target.id == "st_idle":
+        print("TODO: Set all PTP4L services states to UNDEFINED. >>>")
 
 
 # Press the green button in the gutter to run the script.

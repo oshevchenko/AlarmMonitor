@@ -67,8 +67,16 @@ class AlarmManager(object):
 
 
 class TestMainStateMachine(TestCase):
+    def setUp(self):
+        self.ptp_manager = PtpManager()
+        self.alarm_manager = AlarmManager()
+        self.sm_data = MainStateMachineData(self.ptp_manager, self.alarm_manager)
+        pass
+
     def test_on_enter_idle(self):
-        sm_main = MainStateMachine("main")
+        sm_main = MainStateMachine(self.sm_data)
+        config = {'priority_list': ['PTP', 'NTP', 'GNSS', 'Ext. Osc.']}
+        self.sm_data.mq_set_config(config)
         sm_main.ev_config_update()
         self.assertTrue(sm_main.st_idle.is_active)
 
@@ -77,7 +85,9 @@ class TestMainStateMachine(TestCase):
     def test_on_enter_st_prio_1_trans(self, mock_on_enter_st_prio_1_trans,
                                       mock_on_enter_st_idle):
         # with mock.patch.object(MainStateMachine, 'on_enter_st_prio_1_trans') as mock_method:
-        sm_main = MainStateMachine("main")
+        sm_main = MainStateMachine(self.sm_data)
+        config = {'priority_list': ['PTP', 'NTP', 'GNSS', 'Ext. Osc.']}
+        self.sm_data.mq_set_config(config)
         sm_main.ev_config_update()
         self.assertTrue(mock_on_enter_st_idle.called)
         sm_main.ev_prio_1_found()
@@ -86,7 +96,9 @@ class TestMainStateMachine(TestCase):
 
     @mock.patch.object(MainStateMachine, 'on_enter_st_prio_2_trans')
     def test_on_enter_st_prio_2_trans(self, mock_on_enter_prio_2_trans):
-        sm_main = MainStateMachine("main")
+        sm_main = MainStateMachine(self.sm_data)
+        config = {'priority_list': ['PTP', 'NTP', 'GNSS', 'Ext. Osc.']}
+        self.sm_data.mq_set_config(config)
         sm_main.ev_config_update()
         sm_main.ev_prio_2_found()
         sm_main.ev_timeout()
@@ -101,7 +113,9 @@ class TestMainStateMachine(TestCase):
 
     @mock.patch.object(MainStateMachine, 'on_enter_st_prio_3_trans')
     def test_on_enter_st_prio_3_trans(self, mock_on_enter_prio_3_trans):
-        sm_main = MainStateMachine("main")
+        sm_main = MainStateMachine(self.sm_data)
+        config = {'priority_list': ['PTP', 'NTP', 'GNSS', 'Ext. Osc.']}
+        self.sm_data.mq_set_config(config)
         sm_main.ev_config_update()
         sm_main.ev_prio_3_found()
         sm_main.ev_timeout()
@@ -121,7 +135,9 @@ class TestMainStateMachine(TestCase):
     @mock.patch.object(MainStateMachine, 'ext_osc_in_sync', return_value=False)
     @mock.patch.object(MainStateMachine, 'on_enter_st_manual_trans')
     def test_on_enter_st_manual_trans(self, mock_on_enter_st_manual_trans, mock_ext_osc_in_sync):
-        sm_main = MainStateMachine("main")
+        sm_main = MainStateMachine(self.sm_data)
+        config = {'priority_list': ['PTP', 'NTP', 'GNSS', 'Ext. Osc.']}
+        self.sm_data.mq_set_config(config)
         sm_main.ev_config_update()
         sm_main.ev_timeout()
         self.assertTrue(mock_ext_osc_in_sync.called)
@@ -133,7 +149,9 @@ class TestMainStateMachine(TestCase):
     @mock.patch.object(MainStateMachine, 'ext_osc_in_sync', return_value=True)
     @mock.patch.object(MainStateMachine, 'on_enter_st_manual_ext_osc_trans')
     def test_on_enter_st_manual_trans(self, mock_on_enter_st_manual_ext_osc_trans, mock_ext_osc_in_sync):
-        sm_main = MainStateMachine("main")
+        sm_main = MainStateMachine(self.sm_data)
+        config = {'priority_list': ['PTP', 'NTP', 'GNSS', 'Ext. Osc.']}
+        self.sm_data.mq_set_config(config)
         sm_main.ev_config_update()
         sm_main.ev_timeout()
         self.assertTrue(mock_ext_osc_in_sync.called)
@@ -161,27 +179,39 @@ class TestMainStateMachine(TestCase):
         self.assertTrue(ev_prio_x_found.name == 'ev_prio_2_found')
 
 
-    def test_set_state_by_priority(self):
+    def test_sm_set_state_by_priority(self):
         g_call_sequence.clear()
-        ptp_manager = PtpManager()
-        alarm_manager = AlarmManager()
-        sm_main = MainStateMachineData(ptp_manager, alarm_manager)
-        sm_main.set_priorities(['PTP', 'NTP', 'GNSS', 'Ext. Osc.'])
-        # sm_main.set_state_by_priority(StatePriority.prio_1)
-        # print(g_call_sequence)
-        # g_call_sequence.clear()
-        sm_main.set_state_by_priority(StatePriority.prio_3)
+        config = {'priority_list': ['PTP', 'NTP', 'GNSS', 'Ext. Osc.']}
+        self.sm_data.mq_set_config(config)
+        self.sm_data.sm_set_state_by_priority(StatePriority.prio_3)
         self.assertTrue(json.dumps(g_call_sequence).encode() == b'["_start_ts2phc", "_restart_ptp4l_free_running True", "_stop_phc2sys", "_add_ptp_chrony_sources"]')
         pass
 
 
 
-    def test_reset_services_states(self):
+    def test_sm_reset_services_states(self):
         g_call_sequence.clear()
         ptp_manager = PtpManager()
         alarm_manager = AlarmManager()
         config = {'priority_list': ['PTP', 'NTP', 'GNSS', 'Ext. Osc.']}
-        sm_main = MainStateMachineData(ptp_manager, alarm_manager)
-        sm_main.reset_services_states(config)
+        sm_main = MainStateMachine(self.sm_data)
+        self.sm_data.mq_set_config(config)
+        sm_main.ev_config_update()
         self.assertTrue(json.dumps(g_call_sequence).encode() == \
          b'["alarm start ptpmanager_alarm", "ptp_manager_set_config {\\"priority_list\\": [\\"PTP\\", \\"NTP\\", \\"GNSS\\", \\"Ext. Osc.\\"]}"]')
+
+
+    @mock.patch.object(MainStateMachineData, '_set_next_state')
+    def test1_on_enter_st_prio_1_trans(self, mock_set_next_state):
+        # with mock.patch.object(MainStateMachine, 'on_enter_st_prio_1_trans') as mock_method:
+        sm_main = MainStateMachine(self.sm_data)
+        config = {'priority_list': ['PTP', 'NTP', 'GNSS', 'Ext. Osc.']}
+        self.sm_data.mq_set_config(config)
+        sm_main.ev_config_update()
+        sm_main.ev_prio_1_found()
+        param_d = mock_set_next_state.call_args.args[0]
+        self.assertTrue(param_d['name'] == StateName.ptp)
+
+
+
+
