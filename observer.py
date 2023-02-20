@@ -1,3 +1,4 @@
+import json
 class Observer():
     _observers = []
     def __init__(self):
@@ -34,14 +35,19 @@ class relay_manager(object):
         self.observer = Observer()
         self.observer.observe('relay_attached', self.relay_attached)
         self.observer.observe('tty_attached', self.tty_attached)
+        self.observer.observe('test_callable', self.test_callable)
     def relay_attached(self, who):
         print(who + " relay attached!")
     def tty_attached(self, who):
         print(who + " check for relay!")
+    def test_callable(self, callback):
+        callback()
 
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
+    def TestCallable():
+        print('Hello from TestCallable!')
 
     gps_mngr = gps_manager()
     relay_mngr = relay_manager()
@@ -51,6 +57,7 @@ if __name__ == '__main__':
     Event('tty_attached', 'tty3')
     Event('xxx', 'tty4')
     Event('tty_attached', 'tty5')
+    Event('test_callable', TestCallable)
 
     # graph = DotGraphMachine(AlarmMonitor)
     # dot = graph()
