@@ -7,6 +7,7 @@ import json
 import time
 
 # Launching unittests with arguments
+# source ./venv/bin/activate
 # python -m unittest tests.test_main_sm.TestMainStateMachine
 # in C:\Users\shevc\PycharmProjects\AlarmMonitor
 
