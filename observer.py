@@ -1,19 +1,24 @@
 import json
-class Observer():
+
+
+class Observer:
     _observers = []
+
     def __init__(self):
         self._observers.append(self)
         self._observables = {}
+
     def observe(self, event_name, callback):
         self._observables[event_name] = callback
 
 
 class Event():
-    def __init__(self, name, data, autofire = True):
+    def __init__(self, name, data, autofire=True):
         self.name = name
         self.data = data
         if autofire:
             self.fire()
+
     def fire(self):
         for observer in Observer._observers:
             if self.name in observer._observables:
@@ -25,10 +30,13 @@ class gps_manager(object):
         self.observer = Observer()
         self.observer.observe('gps_attached', self.gps_attached)
         self.observer.observe('tty_attached', self.tty_attached)
+
     def gps_attached(self, who):
         print(who + " gps attached!")
+
     def tty_attached(self, who):
         print(who + " check for gps!")
+
 
 class relay_manager(object):
     def __init__(self):
@@ -36,10 +44,13 @@ class relay_manager(object):
         self.observer.observe('relay_attached', self.relay_attached)
         self.observer.observe('tty_attached', self.tty_attached)
         self.observer.observe('test_callable', self.test_callable)
+
     def relay_attached(self, who):
         print(who + " relay attached!")
+
     def tty_attached(self, who):
         print(who + " check for relay!")
+
     def test_callable(self, callback):
         callback()
 
@@ -48,6 +59,7 @@ class relay_manager(object):
 if __name__ == '__main__':
     def TestCallable():
         print('Hello from TestCallable!')
+
 
     gps_mngr = gps_manager()
     relay_mngr = relay_manager()
