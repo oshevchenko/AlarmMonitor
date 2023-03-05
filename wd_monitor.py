@@ -27,16 +27,18 @@ class MonitorWatchdog:
 
     @classmethod
     def start(cls):
-        if not cls._wd_thr_running:
-            cls._wd_thr_running = True
-            cls._wd_thr = threading.Thread(target=cls._cls_work())
-            cls._wd_thr.start()
+        if cls._wd_thr_running:
+            return
+        cls._wd_thr_running = True
+        cls._wd_thr = threading.Thread(target=cls._cls_work())
+        cls._wd_thr.start()
 
     @classmethod
     def stop(cls):
-        if cls._wd_thr_running:
-            cls._wd_thr_running = False
-            cls._wd_thr.join()
+        if not cls._wd_thr_running:
+            return
+        cls._wd_thr_running = False
+        cls._wd_thr.join()
 
     def __init__(self, name, wd_timeout, wd_callback):
         self._name = name
@@ -76,13 +78,15 @@ class BaseMonitor(ABC):
         self._wd_monitor = MonitorWatchdog(name, wd_timeout, self._wd_callback)
 
     def start(self):
+        if self._thr_running:
+            return
         self._thr_running = True
         self._thr = threading.Thread(target=self._process)
         self._thr.start()
         self._wd_monitor.reset_timer()
 
     def stop(self):
-        if (self._thr_running == False) or (self._thr is None):
+        if not self._thr_running:
             return
         self._wd_monitor.stop_timer()
         self._thr_running = False
