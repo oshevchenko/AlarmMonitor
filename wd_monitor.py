@@ -4,57 +4,75 @@ import logging
 import traceback
 from abc import ABC, abstractmethod
 
-class MonitorWatchdog():
-    _wd_timeouts = {}
-    _wd_callbacks = {}
+
+class MonitorWatchdog:
     _wd_thr = None
-    _mutex = threading.RLock()
+    _wd_thr_running = False
+    _wd_mutex = threading.RLock()
+    _wd_watchdogs = []
 
-    def __init__(self, name, wd_timeout, wd_callback):
-        self._name = name
-        self._wd_timeout = wd_timeout
-        with MonitorWatchdog._mutex:
-            MonitorWatchdog._wd_timeouts[name] = -1
-            MonitorWatchdog._wd_callbacks[name] = wd_callback
-        print('self._wd_thr--- {}'.format(MonitorWatchdog._wd_thr))
-        if MonitorWatchdog._wd_thr is None:
-            MonitorWatchdog._wd_thr = threading.Thread(target=self._wd_work)
-            print('self._wd_thr {}'.format(self._wd_thr))
-            MonitorWatchdog._wd_thr.start()
-            print('start thread')
-        pass
-
-    def _wd_work(self):
-        while True:
+    @classmethod
+    def _cls_work(cls):
+        while cls._wd_thr_running:
             callbacks = []
-            with MonitorWatchdog._mutex:
-                for name in MonitorWatchdog._wd_timeouts.keys():
-                    timeout = MonitorWatchdog._wd_timeouts[name]
-                    if timeout > 0:
-                        timeout -= 1
-                    if timeout == 0:
-                        timeout = -1
-                        callbacks.append(MonitorWatchdog._wd_callbacks.get(name, None))
-                    MonitorWatchdog._wd_timeouts[name] = timeout
-            for callback in callbacks:
-                if callback:
-                    callback()
+            with cls._wd_mutex:
+                for wd in cls._wd_watchdogs:
+                    cb = wd.timer_tick()
+                    if cb:
+                        callbacks.append(cb)
+            for cb in callbacks:
+                cb()
             time.sleep(1)
         pass
 
+    @classmethod
+    def start(cls):
+        if not cls._wd_thr_running:
+            cls._wd_thr_running = True
+            cls._wd_thr = threading.Thread(target=cls._cls_work())
+            cls._wd_thr.start()
+
+    @classmethod
+    def stop(cls):
+        if cls._wd_thr_running:
+            cls._wd_thr_running = False
+            cls._wd_thr.join()
+
+    def __init__(self, name, wd_timeout, wd_callback):
+        self._name = name
+        self._mutex = threading.RLock()
+        self._timeout = wd_timeout
+        self._timer = -1
+        self._callback = wd_callback
+        cls = self.__class__
+        with cls._wd_mutex:
+            cls._wd_watchdogs.append(self)
+
     def reset_timer(self):
-        with MonitorWatchdog._mutex:
-            MonitorWatchdog._wd_timeouts[self._name] = self._wd_timeout
+        with self._mutex:
+            self._timer = self._timeout
 
     def stop_timer(self):
-        with MonitorWatchdog._mutex:
-            MonitorWatchdog._wd_timeouts[self._name] = -1
+        with self._mutex:
+            self._timer = -1
+
+    def timer_tick(self):
+        ret = None
+        with self._mutex:
+            if self._timer > 0:
+                self._timer -= 1
+            if self._timer == 0:
+                self._timer = -1
+                ret = self._callback
+        return ret
 
 
 class BaseMonitor(ABC):
-    def __init__(self, name, wd_timeout = 60):
+    def __init__(self, name=None, wd_timeout=60):
         self._thr_running = False
         self._thr = None
+        if not name:
+            name = self.__class__.__name__
         self._wd_monitor = MonitorWatchdog(name, wd_timeout, self._wd_callback)
 
     def start(self):
@@ -79,7 +97,7 @@ class BaseMonitor(ABC):
     def reset_wd_monitor(self):
         self._wd_monitor.reset_timer()
 
-    @abstractmethod 
+    @abstractmethod
     def _process(self):
         pass
 
@@ -87,40 +105,47 @@ class BaseMonitor(ABC):
     def _wd_callback(self):
         pass
 
+
 class SaplingPTP4LMonitor(BaseMonitor):
 
     def _process(self):
-        while self._thr_running == True:
+        while self._thr_running:
             print('in progress')
             time.sleep(1)
 
-
     def _wd_callback(self):
         print('wd_callback')
+        self.reset_wd_monitor()
 
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
-    def wd_timeout():
+    def wd_timeout0():
         print('wd_timeout')
         pass
+
+
     def wd_timeout1():
         print('wd_timeout1')
         pass
+
+
     def _process():
         while True:
             time.sleep(1)
         pass
+
+
     _thr_running = True
     _thr = threading.Thread(target=_process)
     _thr.start()
-    _wd_monitor = MonitorWatchdog(name="wd_name", wd_timeout=10, wd_callback=wd_timeout)
+    _wd_monitor = MonitorWatchdog(name="wd_name", wd_timeout=10, wd_callback=wd_timeout0)
     _wd_monitor.reset_timer()
     _wd_monitor1 = MonitorWatchdog(name="wd_name1", wd_timeout=15, wd_callback=wd_timeout1)
     _wd_monitor1.reset_timer()
-    test = SaplingPTP4LMonitor('test1', 60)
+    test = SaplingPTP4LMonitor('test1', 5)
     test.start()
-
+    MonitorWatchdog.start()
     while True:
         print(_wd_monitor._wd_timeouts)
         time.sleep(1)
